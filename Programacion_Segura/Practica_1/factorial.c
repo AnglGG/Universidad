@@ -3,26 +3,45 @@
 
 int factorial(int n)
 {
-	assert(n >= 0); // Invariante: n >= 0
+	#ifdef DEBUG_INVARIANT
+	assert(n >= 0);
+	#endif
+
+	#ifdef DEBUG_TRACE
 	printf("Entrando a factorial (%d)\n", n);
+	#endif
+
 	if (n == 0)
 	{
+		#ifdef DEBUG_TRACE
 		printf("Caso base alcanzado: factorial(0) = 1\n");
-		return (1); // Caso base: factorial(0) = 1
+		#endif
+
+		return (1);
 	}
 	else
 	{
 		int resultado = n * factorial(n - 1);
-		printf("Saliendo de factorial (%d), resultado = %d\n", n, resultado); 
-		// Invariante: resultado igual a n!
+
+		#ifdef DEBUG_TRACE
+		printf("Saliendo de factorial (%d), resultado = %d\n", n, resultado);
+		#endif
+
+		#ifdef DEBUG_INVARIANT
 		assert(resultado == n * factorial(n - 1));
+		#endif
+
 		return (resultado);
 	}
 }
 int main()
 {
-	int numero = 3;
+	int numero = 6;
+
+	#ifdef DEBUG_TRACE
 	printf("Calculando factorial de %d\n", numero);
+	#endif
+
 	int resultado = factorial(numero);
 	printf("El factorial de %d es %d\n", numero, resultado);
 	return 0;
