@@ -1,0 +1,5 @@
+Hola soy un shell tipo /bin/bash y mi pid es 6652
+Se invocó al script como ./primer_script.sh
+El nombre del script, sin ruta, es primer_script.sh
+He recibido 3 argumentos
+Esta es la lista de argumentos: 3 4 5

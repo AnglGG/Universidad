@@ -36,7 +36,7 @@ int factorial(int n)
 }
 int main()
 {
-	int numero = 6;
+	int numero = 3;
 
 	#ifdef DEBUG_TRACE
 	printf("Calculando factorial de %d\n", numero);
