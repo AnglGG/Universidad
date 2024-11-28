@@ -15,6 +15,15 @@ Some code adapted from "Fundamentos de Sistemas Operativos", Silberschatz et al.
 #include <malloc.h>
 #include "job_control.h"
 
+
+void terminal_signals(int action) {
+    signal(SIGINT, action);
+    signal(SIGQUIT, action);
+    signal(SIGTSTP, action);
+    signal(SIGTTIN, action);
+    signal(SIGTTOU, action);
+}
+
 // -----------------------------------------------------------------------
 //  get_command() reads in the next command line, separating it into distinct tokens
 //  using whitespace as delimiters. setup() sets the args parameter as a 

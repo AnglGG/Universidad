@@ -64,6 +64,8 @@ void mask_signal(int signal, int block);
 #define new_list(name) 	         new_job(0, name, FOREGROUND)  // name must be const char *
 
 #define print_job_list(list) 	 print_list(list, print_item)
+ // Declaración de terminal_signals
+
 
 #define restore_terminal_signals()   terminal_signals(SIG_DFL)
 #define ignore_terminal_signals() terminal_signals(SIG_IGN)
