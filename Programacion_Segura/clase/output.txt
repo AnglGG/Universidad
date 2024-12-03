@@ -1,0 +1,2 @@
+Hebra 0 escribiendo en el fichero.
+Hebra 1 escribiendo en el fichero.
