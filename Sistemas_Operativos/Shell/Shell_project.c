@@ -103,6 +103,25 @@ int main(void) {
 			print_job_list(tasks);
 			continue;
 		}
+		else if (strcmp(args[0], "fg") == 0)
+		{
+			if (!args[1]) // No hay argumento
+			{
+				tasks->state = CONTINUED;
+				tcsetpgrp(STDIN_FILENO, tasks->pgid);
+				kill(tasks->pgid, SIGCONT);
+			}else
+			{
+				job *item;
+				int pos = atoi(args[1]);
+				item = get_item_bypos(tasks, pos);
+				int pid_item = item->pgid;
+				item->state = CONTINUED;
+				tcsetpgrp(STDIN_FILENO, pid_item);
+				kill(pid_item, SIGCONT);
+			}
+			continue;
+		}
 
 
 		// Crear un nuevo proceso hijo
@@ -113,11 +132,11 @@ int main(void) {
 		}
 		if (pid_fork == 0) { // Proceso hijo
 			group = getpid();
-			new_process_group(group);
+			setpgid(group, group);
+			restore_terminal_signals();
 			if (background == 0)
 			{
 				tcsetpgrp(STDIN_FILENO, group); // Asignar el terminal al proceso hijo
-				restore_terminal_signals();
 			}
 			else
 			{
@@ -131,9 +150,18 @@ int main(void) {
 			exit(-1);
 		}else // Proceso padre
 		{
-			if (background == 0) { // Proceso en primer plano
+			if (background) { // Proceso en background
+				setpgid(pid_fork, pid_fork);
+				block_SIGCHLD();
+				job_task = new_job(pid_fork, args[0], BACKGROUND);
+				add_job(tasks, job_task);
+				unblock_SIGCHLD();
+				printf("Background job running... pid: %d, command: %s\n", pid_fork, args[0]);
+			//
+			}else // Foreground
+			{
 				group = pid_fork;
-				new_process_group(group);
+				setpgid(group, group);
 				tcsetpgrp(STDIN_FILENO, group);
 				pid_wait = waitpid(pid_fork, &w_status, WUNTRACED); // Esperar al hijo (incluir WUNTRACED para detectar procesos suspendidos)
 				tcsetpgrp(STDIN_FILENO, getpgid( getpid())); // Recuperar el terminal para el shell
@@ -145,14 +173,14 @@ int main(void) {
 				{
 					block_SIGCHLD();
 					job_task = get_item_bypid(tasks, pid_wait);
-					job_task->state = STOPPED;
+					//job_task->state = STOPPED;
 					unblock_SIGCHLD();
 					printf("Foreground pid: %d, command: %s, Stopped\n", pid_fork, args[0]);
 				}else if (WIFCONTINUED(w_status))
 				{
 					block_SIGCHLD();
 					job_task = get_item_bypid(tasks, pid_wait);
-					job_task->state = BACKGROUND;
+					//job_task->state = BACKGROUND;
 					unblock_SIGCHLD();
 					printf("Foreground pid: %d, command: %s, Continued\n", pid_fork, args[0] );
 				}else if (WIFSIGNALED(w_status))
@@ -162,14 +190,6 @@ int main(void) {
 				{
 					printf("Foreground pid: %d, command: %s, Exited\n", pid_fork, args[0]);
 				}
-			}else // Proceso en segundo plano
-			{
-				new_process_group(pid_fork);
-				block_SIGCHLD();
-				job_task = new_job(pid_fork, args[0], BACKGROUND);
-				add_job(tasks, job_task);
-				unblock_SIGCHLD();
-				printf("Background job running... pid: %d, command: %s\n", pid_fork, args[0]);
 			}
 		}
 	}
