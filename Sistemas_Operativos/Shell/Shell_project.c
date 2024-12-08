@@ -1,6 +1,12 @@
 #include "job_control.h" // Incluye job_control.h para las macros y funciones relacionadas
+#include <time.h>
 
 #define MAX_LINE 256 /* Tamaño máximo para el buffer de entrada */
+
+#define time_sub(a,b) \
+		a.tv_sec -= b.tv_sec; \
+		a.tv_nsec -= b.tv_nsec; \
+		if (a.tv_nsec < 0){ a.tv_sec += 1000000000; a.tv_sec --; } \
 
 job *tasks;
 
@@ -18,7 +24,7 @@ void manejador_child(int signal)
 		if (pid_wait == 0) return; // No hay ningún cambio de los solicitados
 		if (pid_wait == -1) return;
 		child = get_item_bypid(tasks, pid_wait);
-		command = strdup(child->command);
+		// command = strdup(child->command);
 		if (child)
 		{
 			if (WIFSTOPPED(w_status))
@@ -26,25 +32,25 @@ void manejador_child(int signal)
 					block_SIGCHLD();
 					child->state = STOPPED;
 					unblock_SIGCHLD();
-					printf("Background pid: %d, command: %s, Stopped.\n", child->pgid, child->command);
+					printf("Background pid: %d, Suspended, info: %d\n", child->pgid, WSTOPSIG(w_status));
 				}else if (WIFCONTINUED(w_status))
 				{
 					block_SIGCHLD();
 					child->state = BACKGROUND;
 					unblock_SIGCHLD();
-					printf("Background pid: %d, command: %s, Continued.\n", child->pgid, child->command);
+					printf("Background pid: %d, Continued, info: 0\n", child->pgid);
 				}else if (WIFSIGNALED(w_status))
 				{
 					block_SIGCHLD();
 					delete_job(tasks, child);
 					unblock_SIGCHLD();
-					printf("Background pid: %d, command: %s, Signaled.\n", pid_wait, command);
+					printf("Background pid: %d, Signaled, info: %d\n", pid_wait, WTERMSIG(w_status));
 				}else
 				{
 					block_SIGCHLD();
 					delete_job(tasks, child);
 					unblock_SIGCHLD();
-					printf("Background pid: %d, command: %s, Exited.\n", pid_wait, command);
+					printf("Background pid: %d, Exited, info: %d\n", pid_wait, WEXITSTATUS(w_status));
 				}
 		}
 	}
@@ -62,25 +68,31 @@ int main(void) {
 	enum status status_res;         /* Estado procesado por analyze_status() */
 	int group;
 	sigset_t mySet;
-
+	int fg = 0; // Esto lo pongo para saber si se está haciendo el foreground o no
 	job *job_task;
+	int etime = 0;
+	/*Comando etime*/
+	struct timespec start_time, end_time;
 
 	ignore_terminal_signals();
 	signal(SIGCHLD, manejador_child);
-	tasks = new_list("Job_list");
+	tasks = new_list("Lista de trabajos");
 
 	while (1) {
 		printf("COMMAND-> ");
 		fflush(stdout);
 
 		// Leer el comando ingresado
+		background = 0;
 		get_command(inputBuffer, MAX_LINE, args, &background);
 		if (args[0] == NULL) continue; // Ignorar comandos vacíos
 
 		if (strcmp(args[0],  "cd") == 0)
 		{
 			if (args[1] && chdir(args[1]) == -1)
-				printf("No se puede cambiar al directorio basura\n");
+			{
+				printf("No se puede cambiar al directorio %s\n", args[1]);
+			}
 			continue;
 		}else if (strcmp(args[0], "quit") == 0)
 		{
@@ -100,32 +112,71 @@ int main(void) {
 			continue;
 		}else if (strcmp(args[0], "jobs") == 0)
 		{
+			block_SIGCHLD();
 			print_job_list(tasks);
+			unblock_SIGCHLD();
 			continue;
+		}
+		else if (strcmp(args[0], "bg") == 0)
+		{
+			int pos = 1;
+			if (args[1])
+			{
+				pos = atoi(args[1]);
+			}
+			job_task = get_item_bypos(tasks, pos);
+			if (job_task != NULL && job_task->state == STOPPED)
+			{
+				block_SIGCHLD();
+				job_task->state = BACKGROUND;
+				killpg(job_task->pgid, SIGCONT);
+				strcpy(args[0], job_task->command);
+				pid_fork = job_task->pgid;
+				background = 1;
+				fg = 1;
+				unblock_SIGCHLD();
+			}else continue;
 		}
 		else if (strcmp(args[0], "fg") == 0)
 		{
-			if (!args[1]) // No hay argumento
+			int pos = 1;
+			fg = 1;
+			if (args[1]) // Hay argumento
 			{
-				tasks->state = CONTINUED;
-				tcsetpgrp(STDIN_FILENO, tasks->pgid);
-				kill(tasks->pgid, SIGCONT);
-			}else
-			{
-				job *item;
-				int pos = atoi(args[1]);
-				item = get_item_bypos(tasks, pos);
-				int pid_item = item->pgid;
-				item->state = CONTINUED;
-				tcsetpgrp(STDIN_FILENO, pid_item);
-				kill(pid_item, SIGCONT);
+				pos = atoi(args[1]);
 			}
-			continue;
+			job_task = get_item_bypos(tasks, pos);
+			if (job_task != NULL)
+			{
+				block_SIGCHLD();
+				tcsetpgrp(STDIN_FILENO, job_task->pgid);
+				if (job_task->state == STOPPED)
+				{
+					killpg(job_task->pgid, SIGCONT);
+					strcpy(args[0], job_task->command);
+				}
+				pid_fork = job_task->pgid;
+				delete_job(tasks, job_task);
+				unblock_SIGCHLD();
+			}
+		}else if (strcmp(args[0], "etime") == 0)
+		{
+			etime = 1;
+			if (args[1] == 0) continue;
+			int i;
+			for (i = 1; args[i]; i ++)
+			{
+				args[i-1] = args[i];
+			}
+			args[i-1] = args[i];
+			printf("Detectado etime\n");
+			clock_gettime(CLOCK_MONOTONIC, &start_time);
 		}
 
 
 		// Crear un nuevo proceso hijo
-		pid_fork = fork();
+		if (fg == 0) pid_fork = fork();
+
 		if (pid_fork < 0) {
 			perror("fork");
 			continue;
@@ -142,7 +193,7 @@ int main(void) {
 			{
 				block_SIGCHLD();
 				job_task = new_job(pid_fork, args[0], BACKGROUND);
-				add_job(tasks, job_task);
+				add_job(tasks, job_task);			
 				unblock_SIGCHLD();
 			}
 			execvp(args[0], args); // Ejecutar el comando
@@ -153,11 +204,19 @@ int main(void) {
 			if (background) { // Proceso en background
 				setpgid(pid_fork, pid_fork);
 				block_SIGCHLD();
-				job_task = new_job(pid_fork, args[0], BACKGROUND);
-				add_job(tasks, job_task);
+				job_task = get_item_bypid(tasks, pid_fork);
+				if (job_task == NULL)
+				{
+					job_task = new_job(pid_fork, args[0], BACKGROUND);
+					add_job(tasks, job_task);
+				}else
+				{
+					job_task->state = BACKGROUND;
+				}
 				unblock_SIGCHLD();
 				printf("Background job running... pid: %d, command: %s\n", pid_fork, args[0]);
-			//
+				fg = 0;
+			
 			}else // Foreground
 			{
 				group = pid_fork;
@@ -169,27 +228,31 @@ int main(void) {
 				{
 					perror("waitpid");
 				}
+				block_SIGCHLD();
 				if (WIFSTOPPED(w_status))
 				{
-					block_SIGCHLD();
-					job_task = get_item_bypid(tasks, pid_wait);
-					//job_task->state = STOPPED;
-					unblock_SIGCHLD();
-					printf("Foreground pid: %d, command: %s, Stopped\n", pid_fork, args[0]);
-				}else if (WIFCONTINUED(w_status))
+					job_task = new_job(pid_fork, args[0], BACKGROUND);
+					job_task->state = STOPPED;
+					add_job(tasks, job_task);
+					printf("Foreground pid: %d, command: %s, Suspended, info: %d\n", pid_fork, args[0], WSTOPSIG(w_status));
+				}else if (WIFCONTINUED(w_status)) // REVISAR ESTE IF
 				{
-					block_SIGCHLD();
-					job_task = get_item_bypid(tasks, pid_wait);
-					//job_task->state = BACKGROUND;
-					unblock_SIGCHLD();
-					printf("Foreground pid: %d, command: %s, Continued\n", pid_fork, args[0] );
+					/*never reached*/
 				}else if (WIFSIGNALED(w_status))
 				{
-					printf("Foreground pid: %d, command: %s, Signaled\n", pid_fork, args[0]);
+					printf("Foreground pid: %d, command: %s, Signaled, info: %d\n", pid_fork, args[0], WTERMSIG(w_status));
 				}else
 				{
-					printf("Foreground pid: %d, command: %s, Exited\n", pid_fork, args[0]);
+					printf("Foreground pid: %d, command: %s, Exited, info: %d\n", pid_fork, args[0], WEXITSTATUS(w_status));
 				}
+				unblock_SIGCHLD();
+				if (etime == 1)
+				{
+					clock_gettime(CLOCK_MONOTONIC, &end_time);
+					time_sub (end_time, start_time);
+					printf("Elapsed time: %ld.%03ld\n", end_time.tv_sec, end_time.tv_nsec/1000000);
+				}
+				fg = 0;
 			}
 		}
 	}
