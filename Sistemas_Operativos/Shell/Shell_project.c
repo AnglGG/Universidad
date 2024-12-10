@@ -1,6 +1,7 @@
 #include "job_control.h" // Incluye job_control.h para las macros y funciones relacionadas
 #include <time.h>
 #include <fcntl.h>
+#include <sys/time.h>
 
 #define MAX_LINE 256 /* Tamaño máximo para el buffer de entrada */
 
@@ -139,7 +140,7 @@ int main(void) {
 		{
 			int pos = 1;
 			fg = 1;
-			if (args[1]) // Hay argumento
+			if (args[1] && args[2] == NULL) // Hay argumento
 			{
 				pos = atoi(args[1]);
 			}
@@ -151,13 +152,17 @@ int main(void) {
 				if (job_task->state == STOPPED)
 				{
 					killpg(job_task->pgid, SIGCONT);
-					strcpy(args[0], job_task->command);
 				}
+				strcpy(args[0], job_task->command);
 				pid_fork = job_task->pgid;
 				delete_job(tasks, job_task);
 				unblock_SIGCHLD();
+			}else
+			{
+				fg = 0;
+				continue;
 			}
-		}else if (strcmp(args[0], "etime") == 0)
+		}/*else if (strcmp(args[0], "etime") == 0)
 		{
 			etime = 1;
 			if (args[1] == 0) continue;
@@ -169,7 +174,7 @@ int main(void) {
 			args[i-1] = args[i];
 			printf("Detectado etime\n");
 			clock_gettime(CLOCK_MONOTONIC, &start_time);
-		}else
+		}*/else
 		{
 			int i = 0;
 			int input_fd = -1;
@@ -181,7 +186,7 @@ int main(void) {
 					if (args[i + 1] == NULL)
 					{
 						fprintf(stderr, "Error: Redirección de entrada incompleta.\n");
-            			exit(EXIT_FAILURE);
+						exit(EXIT_FAILURE);
 					}
 					input_fd = open(args[i + 1], O_RDONLY);
 					if (input_fd < 0)
@@ -204,7 +209,7 @@ int main(void) {
 					if (args[i + 1] == NULL)
 					{
 						fprintf(stderr, "Error: Redirección de salida incompleta.\n");
-            			exit(EXIT_FAILURE);
+						exit(EXIT_FAILURE);
 					}
 					output_fd = open(args[i + 1], O_WRONLY | O_CREAT | O_TRUNC, 0644);
 					if (output_fd < 0)
@@ -281,8 +286,6 @@ int main(void) {
 				tcsetpgrp(STDIN_FILENO, getpgid( getpid())); // Recuperar el terminal para el shell
 				dup2(original_stdin, STDIN_FILENO);
 				dup2(original_stdout, STDOUT_FILENO);
-				close(original_stdin);
-				close(original_stdout);
 				if (pid_wait < 0)
 				{
 					perror("waitpid");
@@ -316,6 +319,8 @@ int main(void) {
 		}
 		
 	}
+	close(original_stdin);
+	close(original_stdout);
 
 	return 0;
 	
