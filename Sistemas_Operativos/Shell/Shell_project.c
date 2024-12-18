@@ -2,6 +2,7 @@
 #include <time.h>
 #include <fcntl.h>
 #include <sys/time.h>
+#include <pthread.h>
 
 #define MAX_LINE 256 /* Tamaño máximo para el buffer de entrada */
 
@@ -10,7 +11,81 @@
 		a.tv_nsec -= b.tv_nsec; \
 		if (a.tv_nsec < 0){ a.tv_sec += 1000000000; a.tv_sec --; } \
 
+
+//Estructura para el alarm-thread
+typedef struct
+{
+	int pid;
+	int seconds;
+}AlarmData;
+
+
+void alarm_thread_func(void *arg)
+{
+	AlarmData *data = (AlarmData *)arg;
+	sleep(data->seconds);
+
+	if (kill(data->pid, 0) == 0) //Comprobar si el proceso existe
+	{
+		printf("El proceso %d sigue activo.\n");
+		kill(data->pid, SIGKILL); // Matamos el proceso
+	}else
+	{
+		printf("El proceso %d ya acabó\n", data-pid);
+	}
+	free(data);
+	pthread_exit(NULL); //Termina el hilo
+}
+
+//Comando interno alarm-thread
+void alarm_thread_command(char **argv)
+{
+	int seconds = atoi(argv[1])
+	if (seconds <= 0)
+	{
+    	fprintf(stderr, "Error: El tiempo debe ser un número positivo.\n");
+    	return;
+    }
+	 // Crear el proceso hijo para ejecutar el comando
+    pid_t pid = fork();
+    if (pid < 0) {
+        perror("Error al hacer fork");
+        return;
+    } else if (pid == 0) {
+        // Código del hijo: ejecutar el comando
+        execvp(argv[2], &argv[2]);
+        perror("Error al ejecutar el comando");
+        exit(EXIT_FAILURE);
+    } else {
+        // Código del padre: crear el hilo de alarma
+        pthread_t alarm_thread;
+        AlarmData *data = malloc(sizeof(AlarmData));
+        if (data == NULL) {
+            perror("Error al asignar memoria");
+            return;
+        }
+        data->pid = pid;
+        data->seconds = seconds;
+
+        pthread_attr_t attr;
+        pthread_attr_init(&attr);
+        pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED); // Hilo detached
+
+        if (pthread_create(&alarm_thread, &attr, alarm_thread_func, data) != 0) {
+            perror("Error al crear el hilo de alarma");
+            free(data);
+        }
+        pthread_attr_destroy(&attr);
+
+        // Esperar al proceso hijo si está en foreground
+        int status;
+        waitpid(pid, &status, 0);
+    }
+}
+
+
 job *tasks;
+int job_finalizados = 0;
 
 void manejador_child(int signal)
 {
@@ -26,6 +101,7 @@ void manejador_child(int signal)
 		if (pid_wait == 0) return; // No hay ningún cambio de los solicitados
 		if (pid_wait == -1) return;
 		block_SIGCHLD();
+		
 		child = get_item_bypid(tasks, pid_wait);
 		// command = strdup(child->command);
 		if (child)
@@ -40,10 +116,12 @@ void manejador_child(int signal)
 				printf("Background pid: %d, Continued, info: 0\n", child->pgid);
 			}else if (WIFSIGNALED(w_status))
 			{
+				job_finalizados ++;
 				delete_job(tasks, child);
 				printf("Background pid: %d, Signaled, info: %d\n", pid_wait, WTERMSIG(w_status));
 			}else
 			{
+				job_finalizados ++;
 				delete_job(tasks, child);
 				printf("Background pid: %d, Exited, info: %d\n", pid_wait, WEXITSTATUS(w_status));
 			}
@@ -155,6 +233,7 @@ int main(void) {
 				}
 				strcpy(args[0], job_task->command);
 				pid_fork = job_task->pgid;
+				job_finalizados ++;
 				delete_job(tasks, job_task);
 				unblock_SIGCHLD();
 			}else
@@ -162,7 +241,12 @@ int main(void) {
 				fg = 0;
 				continue;
 			}
-		}/*else if (strcmp(args[0], "etime") == 0)
+		}else if (strcmp(args[0], "dac") == 0)
+		{
+			printf("El número total de trabajos ha sido de %d\n", job_finalizados);
+			continue;
+		}
+		/*else if (strcmp(args[0], "etime") == 0)
 		{
 			etime = 1;
 			if (args[1] == 0) continue;
@@ -235,7 +319,7 @@ int main(void) {
 
 		// Crear un nuevo proceso hijo
 		if (fg == 0) pid_fork = fork();
-
+		if (rp == 1) pid_fork_rp = fork();
 		if (pid_fork < 0) {
 			perror("fork");
 			continue;
@@ -255,6 +339,7 @@ int main(void) {
 				add_job(tasks, job_task);			
 				unblock_SIGCHLD();
 			}
+			
 			execvp(args[0], args); // Ejecutar el comando
 			printf("Error, command not found: %s\n", args[0]); // Si execvp falla
 			exit(-1);
@@ -302,9 +387,11 @@ int main(void) {
 					/*never reached*/
 				}else if (WIFSIGNALED(w_status))
 				{
+					job_finalizados ++;
 					printf("Foreground pid: %d, command: %s, Signaled, info: %d\n", pid_fork, args[0], WTERMSIG(w_status));
 				}else
 				{
+					job_finalizados ++;
 					printf("Foreground pid: %d, command: %s, Exited, info: %d\n", pid_fork, args[0], WEXITSTATUS(w_status));
 				}
 				unblock_SIGCHLD();
